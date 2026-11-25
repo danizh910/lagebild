@@ -2,11 +2,12 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { ClerkProvider, Show, SignInButton, UserButton } from "@clerk/nextjs";
 import { shadcn } from "@clerk/ui/themes";
+import { deDE } from "@clerk/localizations";
 import { authEnabled } from "@/lib/auth";
 
 /** Wraps children in ClerkProvider only when login is configured. */
 export function MaybeClerk({ children }: { children: React.ReactNode }) {
-  return authEnabled() ? <ClerkProvider appearance={{ theme: shadcn }}>{children}</ClerkProvider> : <>{children}</>;
+  return authEnabled() ? <ClerkProvider appearance={{ theme: shadcn }} localization={deDE}>{children}</ClerkProvider> : <>{children}</>;
 }
 
 export function HeaderAccount() {
