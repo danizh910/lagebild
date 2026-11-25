@@ -7,6 +7,7 @@ import type { Poi } from "@/lib/sources";
 const COLORS: Record<string, string> = {
   "ÖV-Haltestelle": "#2563eb", Schule: "#16a34a", "Kindergarten/Kita": "#22c55e", "Arzt/Apotheke": "#0891b2",
   "Soziale Einrichtung": "#0d9488", Einkauf: "#ca8a04", "Freizeit/Park": "#65a30d", Bar: "#c026d3", Club: "#9333ea",
+  Baugesuch: "#f97316",
 };
 
 const OVERLAYS = {
@@ -43,9 +44,20 @@ export function SiteMap({ lat, lon, pois }: { lat: number; lon: number; pois: Po
       }).addTo(m);
       L.circle([lat, lon], { radius: 400, color: "#888", weight: 1, fill: false, dashArray: "4 4" }).addTo(m);
       for (const p of pois) {
-        L.circleMarker([p.lat, p.lon], { radius: 5, color: "#fff", weight: 1, fillColor: COLORS[p.kind] ?? "#666", fillOpacity: 0.9 })
-          .bindTooltip(`${p.kind}: ${p.name} (${p.dist} m)`)
-          .addTo(m);
+        const isBg = p.kind === "Baugesuch";
+        const mk = L.circleMarker([p.lat, p.lon], {
+          radius: isBg ? 7 : 5, color: isBg ? "#000" : "#fff", weight: isBg ? 1.5 : 1, fillColor: COLORS[p.kind] ?? "#666", fillOpacity: 0.9,
+        });
+        if (isBg) {
+          const div = document.createElement("div");
+          div.innerHTML = `<strong></strong><br><span></span><br><a target="_blank" rel="noopener">Im Amtsblatt öffnen</a>`;
+          // textContent, not innerHTML: descriptions come from an external dataset
+          div.querySelector("strong")!.textContent = `${p.category} · ${new Date(p.date!).toLocaleDateString("de-CH")}`;
+          div.querySelector("span")!.textContent = `${p.name} (${p.address}, ${p.dist} m)`;
+          div.querySelector("a")!.href = p.url!;
+          mk.bindPopup(div);
+        } else mk.bindTooltip(`${p.kind}: ${p.name} (${p.dist} m)`);
+        mk.addTo(m);
       }
       L.circleMarker([lat, lon], { radius: 9, color: "#fff", weight: 3, fillColor: "#dc2626", fillOpacity: 1 }).addTo(m);
       map.current = m;

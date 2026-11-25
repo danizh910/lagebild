@@ -1,5 +1,6 @@
 import { identify, lv95ToWgs, rasterHit, rasterValue, type Place } from "./geo";
 import survey from "@/data/zh-zufriedenheit.json";
+import { DEVELOPMENT, detailUrl as bgDetailUrl, nearby, SOURCE as BG_SOURCE, type Baugesuch } from "./baugesuche";
 
 type SurveyCell = { wert: number | null; n: number; trend: number | null };
 const SURVEY = survey as { source: string; labels: Record<string, string>; areas: Record<string, Record<string, SurveyCell>> };
@@ -30,7 +31,11 @@ export type DataPoint = {
   fetchedAt: string;
 };
 
-export type Poi = { kind: string; name: string; lat: number; lon: number; dist: number };
+export type Poi = {
+  kind: string; name: string; lat: number; lon: number; dist: number;
+  // only for kind "Baugesuch"
+  date?: string; category?: string; url?: string; address?: string;
+};
 
 export type Building = {
   egid?: string;
@@ -44,7 +49,11 @@ export type Building = {
   heizungSeit?: string;
   parzelle?: string;
   egrid?: string;
+  kanton?: string;
 };
+
+/** Bump when collect() gains or changes sources, so cached analyses are re-collected. */
+export const DATA_VERSION = 3;
 
 export type ApiLog = { source: string; ok: boolean; ms: number; error?: string };
 export type Collected = { points: DataPoint[]; pois: Poi[]; building: Building | null; logs: ApiLog[] };
@@ -221,6 +230,7 @@ export async function collect(place: Place, onStep?: (msg: string) => void): Pro
       heizungSeit: g.gwaerdath1 && g.gwaerdath1 !== "-" ? String(g.gwaerdath1) : undefined,
       parzelle: g.lparz ? String(g.lparz) : undefined,
       egrid: g.egrid ? String(g.egrid) : undefined,
+      kanton: g.gdekt ? String(g.gdekt) : undefined,
     };
     const src = `${GEO} · BFS Gebäude- und Wohnungsregister`;
     if (building.baujahr) add({ key: "baujahr", category: "gebaeude", label: "Baujahr", value: building.baujahr, source: src });
@@ -245,6 +255,30 @@ export async function collect(place: Place, onStep?: (msg: string) => void): Pro
   osmPoint("clubs_300m", "nachtleben", "Clubs im Umkreis 300 m", count("Club", 300));
   osmPoint("clubs_600m", "nachtleben", "Clubs im Umkreis 600 m", count("Club", 600));
 
+  step("Baugesuche im Umkreis (Kanton Zürich)");
+  // Rough Kanton ZH bbox as fallback when the building register gives no canton.
+  const inZh = building?.kanton ? building.kanton === "ZH" : e > 2669000 && e < 2717000 && n > 1223000 && n < 1284000;
+  const bgPois: Poi[] = [];
+  if (inZh) {
+    const bg = await safe("Baugesuche (Neon-Cache)", () => nearby(e, n, 500, 24));
+    const months = (d: string) => (Date.now() - new Date(d).getTime()) / (30.44 * 864e5);
+    const src = `${BG_SOURCE} · seit Herbst 2024`;
+    const cnt = (f: (b: Baugesuch & { dist: number }) => boolean) => (bg ? bg.filter(f).length : null);
+    add({ key: "bg_500m_12m", category: "entwicklung", label: "Baugesuche im Umkreis 500 m (12 Monate)", value: cnt((b) => months(b.pub_date) <= 12), source: src });
+    add({ key: "bg_entwicklung_500m_12m", category: "entwicklung", label: "Davon Neubau, Aufstockung, Abbruch", value: cnt((b) => months(b.pub_date) <= 12 && DEVELOPMENT.includes(b.category)), source: src });
+    add({ key: "bg_energie_500m_12m", category: "entwicklung", label: "Davon energetische Erneuerung (Wärmepumpe, Solar)", value: cnt((b) => months(b.pub_date) <= 12 && b.category === "Energie"), source: src });
+    const recent = cnt((b) => months(b.pub_date) <= 6), before = cnt((b) => months(b.pub_date) > 6 && months(b.pub_date) <= 12);
+    add({ key: "bg_trend", category: "entwicklung", label: "Baugesuche letzte 6 Monate vs. 6 Monate davor", value: recent == null || before == null ? null : `${recent} vs. ${before}`, source: src });
+    add({ key: "bg_parzelle", category: "gebaeude", label: "Baugesuche für diese Adresse/Parzelle (24 Monate)", value: cnt((b) => b.dist <= 30), source: src });
+    for (const b of bg ?? []) {
+      if (b.e == null || b.n == null) continue;
+      bgPois.push({
+        kind: "Baugesuch", name: b.description.slice(0, 140), ...lv95ToWgs(b.e, b.n), dist: b.dist,
+        date: b.pub_date, category: b.category, url: bgDetailUrl(b.id), address: b.address,
+      });
+    }
+  }
+
   step("Quartier und Bevölkerungsbefragung");
   const quartier = await safe("Stadt Zürich · Statistische Quartiere", () => zhQuartier(e, n));
   if (quartier) {
@@ -265,5 +299,6 @@ export async function collect(place: Place, onStep?: (msg: string) => void): Pro
     }
   }
 
-  return { points, pois: [...stopPois, ...(osm ?? [])], building, logs };
+  add({ key: "data_version", category: "meta", label: "Version der Datensammlung", value: DATA_VERSION, source: "Lagebild" });
+  return { points, pois: [...stopPois, ...(osm ?? []), ...bgPois], building, logs };
 }

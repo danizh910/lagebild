@@ -1,7 +1,7 @@
 import { AGENTS, moderate, runAgent, type Profile } from "@/lib/agents";
 import { findRecent, saveAnalysis, saveLogs } from "@/lib/db";
 import type { Place } from "@/lib/geo";
-import { collect, type ApiLog } from "@/lib/sources";
+import { collect, DATA_VERSION, type ApiLog } from "@/lib/sources";
 
 export const maxDuration = 300;
 
@@ -28,8 +28,10 @@ export async function POST(req: Request) {
         const log = (l: ApiLog) => logs.push(l);
         const cached = await findRecent(place.e, place.n);
         // Reuse only if OSM worked last time, otherwise try again for the missing amenities.
+        // Also skip caches built by an older collector version (new sources added since).
         const osmOk = cached?.points.some((p) => p.key === "bars_300m" && p.value !== null);
-        const data = cached && osmOk
+        const fresh = cached?.points.some((p) => p.key === "data_version" && p.value === DATA_VERSION);
+        const data = cached && osmOk && fresh
           ? (send({ step: "Daten aus Zwischenspeicher (weniger als 3 Wochen alt)" }), cached)
           : await collect({ ...place, label }, (step) => send({ step }));
         if ("logs" in data) logs.push(...data.logs);

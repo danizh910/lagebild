@@ -4,7 +4,7 @@ import { PROFILE_LABEL, llmEnabled } from "@/lib/agents";
 import { getAnalysis } from "@/lib/db";
 import { SiteMap } from "@/components/site-map";
 import { PrintButton } from "@/components/print-button";
-import type { DataPoint } from "@/lib/sources";
+import type { DataPoint, Poi } from "@/lib/sources";
 
 function tone(score: number | null) {
   if (score == null) return "bg-muted text-muted-foreground";
@@ -23,6 +23,66 @@ function ScoreBadge({ score, big }: { score: number | null; big?: boolean }) {
 
 const fmtVal = (p: DataPoint) =>
   p.value === null ? "nicht verfügbar" : p.value === true ? "ja" : p.value === false ? "nein" : `${p.value}${p.unit ? " " + p.unit : ""}`;
+
+const CAT_COLOR: Record<string, string> = {
+  Neubau: "bg-orange-600", "Aufstockung/Anbau": "bg-orange-500", Abbruch: "bg-rose-600",
+  "Umbau/Sanierung": "bg-sky-600", Energie: "bg-emerald-600", "Kleinbauten/Umgebung": "bg-lime-600", Sonstiges: "bg-zinc-500",
+};
+
+/** Bauaktivität im Umkreis 500 m als Frühindikator (nur Kanton Zürich). */
+function BaugesucheSection({ points, pois }: { points: DataPoint[]; pois: Poi[] }) {
+  const total = points.find((p) => p.key === "bg_500m_12m");
+  if (!total) return null;
+  const list = pois.filter((p) => p.kind === "Baugesuch").sort((x, y) => (y.date! > x.date! ? 1 : -1));
+  const byCat = Object.entries(
+    list.reduce<Record<string, number>>((acc, p) => ((acc[p.category!] = (acc[p.category!] ?? 0) + 1), acc), {}),
+  ).sort((x, y) => y[1] - x[1]);
+  const kpis = ["bg_500m_12m", "bg_entwicklung_500m_12m", "bg_energie_500m_12m", "bg_trend"].map((k) => points.find((p) => p.key === k)!).filter(Boolean);
+  return (
+    <section className="mt-10 break-inside-avoid">
+      <h2 className="text-lg font-semibold">Bauaktivität im Umkreis</h2>
+      <p className="mb-4 mt-1 text-sm text-muted-foreground">
+        Baugesuche im Umkreis von 500 m aus dem Amtsblatt des Kantons Zürich. Viele Neubau- und Aufstockungsgesuche zeigen, dass sich ein Quartier
+        entwickelt, oft ein Frühindikator für steigende Preise. Ein Gesuch heisst nicht, dass auch gebaut wird.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-4">
+        {kpis.map((p) => (
+          <div key={p.key} className="rounded-lg border p-3">
+            <div className="text-2xl font-semibold tabular-nums">{p.value ?? "–"}</div>
+            <div className="text-xs text-muted-foreground">{p.label}</div>
+          </div>
+        ))}
+      </div>
+      {byCat.length > 0 && (
+        <div className="mt-4 flex flex-wrap gap-2 text-xs">
+          {byCat.map(([c, k]) => (
+            <span key={c} className="flex items-center gap-1.5 rounded border px-2 py-1">
+              <span className={`size-2 rounded-full ${CAT_COLOR[c] ?? "bg-zinc-500"}`} />{c}: {k} <span className="text-muted-foreground">(24 Mt.)</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {list.length > 0 ? (
+        <ul className="mt-4 divide-y rounded-lg border text-sm">
+          {list.slice(0, 15).map((p) => (
+            <li key={p.url} className="flex gap-3 p-3">
+              <span className="w-20 shrink-0 font-mono text-xs text-muted-foreground">{new Date(p.date!).toLocaleDateString("de-CH")}</span>
+              <span className={`mt-1 size-2 shrink-0 rounded-full ${CAT_COLOR[p.category!] ?? "bg-zinc-500"}`} />
+              <span className="min-w-0 flex-1">
+                <span className="font-medium">{p.category}</span> · {p.name}
+                <span className="block text-xs text-muted-foreground">{p.address} · {p.dist} m</span>
+              </span>
+              <a href={p.url} target="_blank" rel="noopener" className="shrink-0 text-xs text-brand hover:underline print:hidden">Amtsblatt ↗</a>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-4 text-sm text-muted-foreground">Keine Baugesuche mit Koordinaten im Umkreis gefunden.</p>
+      )}
+      {list.length > 15 && <p className="mt-2 text-xs text-muted-foreground">{list.length - 15} weitere auf der Karte (orange Punkte).</p>}
+    </section>
+  );
+}
 
 /** Bewohner-Zufriedenheit im Quartier vs. Stadtschnitt, mit Trend (nur Stadt Zürich). */
 function QuartierSection({ points }: { points: DataPoint[] }) {
@@ -88,11 +148,14 @@ async function Report({ params }: { params: Promise<{ id: string }> }) {
   const byKey = Object.fromEntries(a.points.map((p) => [p.key, p]));
   const b = a.building;
   const date = new Date(a.created_at).toLocaleDateString("de-CH", { day: "2-digit", month: "long", year: "numeric" });
-  const missing = a.points.filter((p) => p.value === null);
+  const missing = a.points.filter((p) => p.value === null && p.category !== "meta");
 
   const timeline = [
     b?.baujahr && { year: String(b.baujahr), text: "Gebaut" },
     b?.heizungSeit && { year: b.heizungSeit.slice(-4), text: `Heizung erfasst: ${b.heizung ?? "unbekannt"}` },
+    // Baugesuche for this parcel (within 30 m), oldest first
+    ...a.pois.filter((p) => p.kind === "Baugesuch" && p.dist <= 30).sort((x, y) => (x.date! > y.date! ? 1 : -1))
+      .map((p) => ({ year: p.date!.slice(0, 4), text: `Baugesuch: ${p.name.replace(/^BG Nr\. [^:]+:\s*/, "").slice(0, 70)}` })),
     { year: "heute", text: [b?.art, b?.geschosse && `${b.geschosse} Geschosse`, b?.wohnungen && `${b.wohnungen} Wohnungen`, b?.heizung].filter(Boolean).join(" · ") },
   ].filter(Boolean) as { year: string; text: string }[];
 
@@ -143,6 +206,8 @@ async function Report({ params }: { params: Promise<{ id: string }> }) {
         <SiteMap lat={a.place.lat} lon={a.place.lon} pois={a.pois} />
       </section>
 
+      <BaugesucheSection points={a.points} pois={a.pois} />
+
       <QuartierSection points={a.points} />
 
       {/* Agenten */}
@@ -190,7 +255,7 @@ async function Report({ params }: { params: Promise<{ id: string }> }) {
             </ol>
             <p className="mt-3 text-xs text-muted-foreground">
               Quelle: Eidg. Gebäude- und Wohnungsregister (EGID {b.egid}{b.parzelle ? `, Parzelle ${b.parzelle}` : ""}
-              {b.flaeche ? `, Grundfläche ${b.flaeche} m²` : ""}). Renovationen und Baugesuche folgen in einer späteren Version.
+              {b.flaeche ? `, Grundfläche ${b.flaeche} m²` : ""}). Baugesuche (Kanton Zürich) ab Herbst 2024.
             </p>
           </div>
         ) : (
@@ -207,7 +272,7 @@ async function Report({ params }: { params: Promise<{ id: string }> }) {
               <tr><th className="p-2">Datenpunkt</th><th className="p-2">Wert</th><th className="p-2">Quelle</th><th className="p-2">Abgerufen</th></tr>
             </thead>
             <tbody>
-              {a.points.map((p) => (
+              {a.points.filter((p) => p.category !== "meta").map((p) => (
                 <tr key={p.key} className="border-t">
                   <td className="p-2">{p.label}</td>
                   <td className={`p-2 tabular-nums ${p.value === null ? "text-muted-foreground italic" : ""}`}>{fmtVal(p)}</td>

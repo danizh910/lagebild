@@ -81,7 +81,7 @@ export const AGENTS: Def[] = [
   },
   {
     id: "investor", name: "Investor & Entwicklung",
-    role: "Du bewertest das Entwicklungs- und Wertsteigerungspotenzial: Bauzone, Nachfragetreiber wie ÖV, Gebäudezustand (alte Heizung/altes Baujahr = Sanierungsbedarf, aber auch Potenzial).",
+    role: "Du bewertest das Entwicklungs- und Wertsteigerungspotenzial: Bauzone, Nachfragetreiber wie ÖV, Gebäudezustand (alte Heizung/altes Baujahr = Sanierungsbedarf, aber auch Potenzial) und Bauaktivität im Umkreis (viele Neubau-/Aufstockungsgesuche = Quartier entwickelt sich, oft Frühindikator für steigende Preise; ein Baugesuch heisst aber nicht, dass gebaut wird).",
     categories: ["entwicklung", "gebaeude", "mobilitaet"],
     score: (v) => {
       if (v.bauzone == null && v.oev_klasse == null) return null;
@@ -92,6 +92,10 @@ export const AGENTS: Def[] = [
       const k = typeof v.oev_klasse === "string" ? v.oev_klasse[0] : "";
       if (k === "A" || k === "B") s += 15; else if (k === "C") s += 5;
       if (typeof v.heizung === "string" && /Heizöl|Gas/.test(v.heizung)) s += 5; // Sanierungshebel
+      // Bauaktivität als Frühindikator: Neubau/Aufstockung/Abbruch im Umkreis 500 m (12 Monate), bis +15
+      const dev = n(v.bg_entwicklung_500m_12m);
+      if (dev != null) s += Math.min(15, dev * 3);
+      // ponytail: fixed thresholds; replace with per-Gemeinde percentiles once enough history is collected
       return clamp(s);
     },
   },
