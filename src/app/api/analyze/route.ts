@@ -1,7 +1,7 @@
 import { AGENTS, moderate, runAgent, type Profile } from "@/lib/agents";
-import { findRecent, saveAnalysis } from "@/lib/db";
+import { findRecent, saveAnalysis, saveLogs } from "@/lib/db";
 import type { Place } from "@/lib/geo";
-import { collect } from "@/lib/sources";
+import { collect, type ApiLog } from "@/lib/sources";
 
 export const maxDuration = 300;
 
@@ -24,25 +24,31 @@ export async function POST(req: Request) {
       const send = (o: object) => ctrl.enqueue(enc.encode(JSON.stringify(o) + "\n"));
       const id = crypto.randomUUID().slice(0, 12);
       try {
+        const logs: ApiLog[] = [];
+        const log = (l: ApiLog) => logs.push(l);
         const cached = await findRecent(place.e, place.n);
-        const data = cached && cached.pois.length > 0
+        // Reuse only if OSM worked last time, otherwise try again for the missing amenities.
+        const osmOk = cached?.points.some((p) => p.key === "bars_300m" && p.value !== null);
+        const data = cached && osmOk
           ? (send({ step: "Daten aus Zwischenspeicher (weniger als 3 Wochen alt)" }), cached)
           : await collect({ ...place, label }, (step) => send({ step }));
+        if ("logs" in data) logs.push(...data.logs);
 
         send({ step: "Agenten analysieren", agents: AGENTS.map((a) => a.name) });
         const agents = await Promise.all(
           AGENTS.map(async (def) => {
-            const r = await runAgent(def, data.points, data.building);
+            const r = await runAgent(def, data.points, data.building, log);
             send({ agentDone: def.name });
             return r;
           }),
         );
         send({ step: "Moderator fasst zusammen" });
-        const verdict = await moderate(agents, profile, label);
+        const verdict = await moderate(agents, profile, label, log);
         await saveAnalysis({
           id, place: { ...place, label }, profile, status: "done",
           points: data.points, pois: data.pois, building: data.building, agents, verdict,
         });
+        await saveLogs(id, logs).catch((err) => console.error("saving logs failed", err));
         send({ done: id });
       } catch (err) {
         console.error(err);

@@ -24,6 +24,50 @@ function ScoreBadge({ score, big }: { score: number | null; big?: boolean }) {
 const fmtVal = (p: DataPoint) =>
   p.value === null ? "nicht verfügbar" : p.value === true ? "ja" : p.value === false ? "nein" : `${p.value}${p.unit ? " " + p.unit : ""}`;
 
+/** Bewohner-Zufriedenheit im Quartier vs. Stadtschnitt, mit Trend (nur Stadt Zürich). */
+function QuartierSection({ points }: { points: DataPoint[] }) {
+  const q = points.find((p) => p.key === "quartier");
+  const rows = points.filter((p) => p.key.startsWith("bvb_") && typeof p.value === "number");
+  if (!q || !rows.length) return null;
+  const pct = (p: DataPoint, x: number) => (p.unit === "%" ? x : ((x - 1) / 5) * 100);
+  return (
+    <section className="mt-10 break-inside-avoid">
+      <h2 className="text-lg font-semibold">Quartier-Analyse: {String(q.value)}</h2>
+      <p className="mb-4 mt-1 text-sm text-muted-foreground">
+        So zufrieden sind die Bewohnerinnen und Bewohner selbst (Bevölkerungsbefragung Stadt Zürich 2023/25, Noten 1–6).
+        Strich = Stadtschnitt, Pfeil = Veränderung seit 2019/21.
+      </p>
+      <div className="grid gap-x-8 gap-y-3 rounded-lg border p-5 sm:grid-cols-2">
+        {rows.map((p) => {
+          const v = p.value as number;
+          const better = p.ref != null && v >= p.ref;
+          return (
+            <div key={p.key}>
+              <div className="flex items-baseline justify-between text-sm">
+                <span>{p.label.replace("Zufriedenheit: ", "")}</span>
+                <span className="tabular-nums">
+                  <strong>{v}{p.unit === "%" ? "%" : ""}</strong>
+                  {p.ref != null && <span className="text-xs text-muted-foreground"> / Stadt {p.ref}{p.unit === "%" ? "%" : ""}</span>}
+                  {p.trend != null && p.trend !== 0 && (
+                    <span className={`ml-1.5 text-xs ${p.trend > 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                      {p.trend > 0 ? "▲" : "▼"} {Math.abs(p.trend)}
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="relative mt-1 h-2 rounded-full bg-muted">
+                <div className={`h-2 rounded-full ${better ? "bg-emerald-600" : "bg-amber-500"}`} style={{ width: `${pct(p, v)}%` }} />
+                {p.ref != null && <div className="absolute -top-0.5 h-3 w-0.5 bg-foreground" style={{ left: `${pct(p, p.ref)}%` }} />}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">{rows[0].source.split(" · n=")[0]}</p>
+    </section>
+  );
+}
+
 export async function generateMetadata({ params }: PageProps<"/r/[id]">) {
   const a = await getAnalysis((await params).id);
   return { title: a ? `Lagebild: ${a.place.label}` : "Lagebild" };
@@ -89,7 +133,7 @@ async function Report({ params }: { params: Promise<{ id: string }> }) {
 
       {!llmEnabled() && (
         <p className="mt-3 rounded-md border border-dashed p-3 text-xs text-muted-foreground print:hidden">
-          Hinweis: KI-Begründungen sind noch nicht aktiviert (kein Anthropic-API-Schlüssel). Scores und Daten sind regelbasiert und vollständig.
+          Hinweis: KI-Begründungen sind noch nicht aktiviert (kein Gemini- oder Anthropic-API-Schlüssel). Scores und Daten sind regelbasiert und vollständig.
         </p>
       )}
 
@@ -99,9 +143,11 @@ async function Report({ params }: { params: Promise<{ id: string }> }) {
         <SiteMap lat={a.place.lat} lon={a.place.lon} pois={a.pois} />
       </section>
 
+      <QuartierSection points={a.points} />
+
       {/* Agenten */}
       <section className="mt-10 print-break">
-        <h2 className="mb-3 text-lg font-semibold">Die sieben Sichten</h2>
+        <h2 className="mb-3 text-lg font-semibold">Die {a.agents.length} Sichten</h2>
         <div className="grid gap-4 md:grid-cols-2">
           {a.agents.map((ag) => (
             <article key={ag.id} className="rounded-lg border p-5 break-inside-avoid">

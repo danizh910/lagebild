@@ -19,19 +19,27 @@ const OVERLAYS = {
 } as const;
 type Overlay = keyof typeof OVERLAYS;
 
+const BASES = {
+  Satellit: "ch.swisstopo.swissimage",
+  Karte: "ch.swisstopo.pixelkarte-grau",
+} as const;
+type Base = keyof typeof BASES;
+
 export function SiteMap({ lat, lon, pois }: { lat: number; lon: number; pois: Poi[] }) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<import("leaflet").Map | null>(null);
   const layer = useRef<import("leaflet").Layer | null>(null);
-  const [overlay, setOverlay] = useState<Overlay>("Strassenlärm");
+  const baseLayer = useRef<import("leaflet").TileLayer | null>(null);
+  const [overlay, setOverlay] = useState<Overlay>("keine");
+  const [base, setBase] = useState<Base>("Satellit");
 
   useEffect(() => {
     let cancelled = false;
     import("leaflet").then((L) => {
       if (cancelled || !el.current || map.current) return;
-      const m = L.map(el.current, { scrollWheelZoom: false }).setView([lat, lon], 16);
-      L.tileLayer("https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-grau/default/current/3857/{z}/{x}/{y}.jpeg", {
-        maxZoom: 19, attribution: "© swisstopo",
+      const m = L.map(el.current, { scrollWheelZoom: false }).setView([lat, lon], 17);
+      baseLayer.current = L.tileLayer(`https://wmts.geo.admin.ch/1.0.0/${BASES.Satellit}/default/current/3857/{z}/{x}/{y}.jpeg`, {
+        maxZoom: 20, maxNativeZoom: 20, attribution: "© swisstopo (SWISSIMAGE)",
       }).addTo(m);
       L.circle([lat, lon], { radius: 400, color: "#888", weight: 1, fill: false, dashArray: "4 4" }).addTo(m);
       for (const p of pois) {
@@ -41,10 +49,13 @@ export function SiteMap({ lat, lon, pois }: { lat: number; lon: number; pois: Po
       }
       L.circleMarker([lat, lon], { radius: 9, color: "#fff", weight: 3, fillColor: "#dc2626", fillOpacity: 1 }).addTo(m);
       map.current = m;
-      setOverlay((o) => o); // trigger overlay effect once the map exists
     });
     return () => { cancelled = true; map.current?.remove(); map.current = null; };
   }, [lat, lon, pois]);
+
+  useEffect(() => {
+    baseLayer.current?.setUrl(`https://wmts.geo.admin.ch/1.0.0/${BASES[base]}/default/current/3857/{z}/{x}/{y}.jpeg`);
+  }, [base]);
 
   useEffect(() => {
     import("leaflet").then((L) => {
@@ -62,6 +73,13 @@ export function SiteMap({ lat, lon, pois }: { lat: number; lon: number; pois: Po
   return (
     <div>
       <div className="mb-2 flex flex-wrap gap-1.5 print:hidden">
+        {(Object.keys(BASES) as Base[]).map((b) => (
+          <button key={b} onClick={() => setBase(b)}
+            className={`rounded border px-2 py-1 text-xs ${base === b ? "border-brand bg-brand text-white" : "hover:bg-accent"}`}>
+            {b}
+          </button>
+        ))}
+        <span className="mx-1 w-px bg-border" />
         {(Object.keys(OVERLAYS) as Overlay[]).map((o) => (
           <button key={o} onClick={() => setOverlay(o)}
             className={`rounded border px-2 py-1 text-xs ${overlay === o ? "border-foreground bg-foreground text-background" : "hover:bg-accent"}`}>

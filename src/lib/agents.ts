@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { Building, DataPoint } from "./sources";
+import type { ApiLog, Building, DataPoint } from "./sources";
 
-export type AgentId = "investor" | "familie" | "mobilitaet" | "umwelt" | "nachtleben" | "risiko" | "wohnqualitaet";
+export type AgentId = "investor" | "familie" | "mobilitaet" | "umwelt" | "nachtleben" | "risiko" | "wohnqualitaet" | "quartier";
 export type Profile = "ausgewogen" | "familie" | "jung" | "investor";
 
 export type AgentResult = {
@@ -118,13 +118,21 @@ export const AGENTS: Def[] = [
       n(v.freizeit_600m) == null ? null : clamp(n(v.freizeit_600m)! * 12),
     ]),
   },
+  {
+    id: "quartier", name: "Quartier & Stimmung",
+    role: "Du wertest aus, wie zufrieden die Bewohnerinnen und Bewohner des Quartiers selbst sind (Bevölkerungsbefragung der Stadt Zürich, Noten 1–6). Vergleiche mit dem Stadtschnitt (ref) und nenne den Trend gegenüber 2019/21 (trend). Nur für die Stadt Zürich verfügbar.",
+    categories: ["quartier"],
+    // grade 1..6 -> 0..100; the night-safety share is already a percentage
+    score: (v) => avg(Object.entries(v).filter(([k]) => k.startsWith("bvb_")).map(([k, x]) =>
+      typeof x !== "number" ? null : k === "bvb_A4001aa01" ? x : ((x - 1) / 5) * 100)),
+  },
 ];
 
 export const PROFILE_WEIGHTS: Record<Profile, Record<AgentId, number>> = {
-  ausgewogen: { investor: 1, familie: 1, mobilitaet: 1, umwelt: 1, nachtleben: 1, risiko: 1, wohnqualitaet: 1 },
-  familie: { investor: 0.5, familie: 3, mobilitaet: 1, umwelt: 2, nachtleben: 2, risiko: 1.5, wohnqualitaet: 1.5 },
-  jung: { investor: 0.5, familie: 0.3, mobilitaet: 2.5, umwelt: 0.8, nachtleben: 0.2, risiko: 1, wohnqualitaet: 1 },
-  investor: { investor: 3, familie: 1, mobilitaet: 1.5, umwelt: 1, nachtleben: 0.5, risiko: 2, wohnqualitaet: 0.8 },
+  ausgewogen: { investor: 1, familie: 1, mobilitaet: 1, umwelt: 1, nachtleben: 1, risiko: 1, wohnqualitaet: 1, quartier: 1 },
+  familie: { investor: 0.5, familie: 3, mobilitaet: 1, umwelt: 2, nachtleben: 2, risiko: 1.5, wohnqualitaet: 1.5, quartier: 1.5 },
+  jung: { investor: 0.5, familie: 0.3, mobilitaet: 2.5, umwelt: 0.8, nachtleben: 0.2, risiko: 1, wohnqualitaet: 1, quartier: 1 },
+  investor: { investor: 3, familie: 1, mobilitaet: 1.5, umwelt: 1, nachtleben: 0.5, risiko: 2, wohnqualitaet: 0.8, quartier: 1.5 },
 };
 export const PROFILE_LABEL: Record<Profile, string> = {
   ausgewogen: "Ausgewogen", familie: "Eigennutzer Familie", jung: "Junges Wohnen", investor: "Investor",
@@ -140,30 +148,67 @@ export function overallScore(results: AgentResult[], profile: Profile) {
 }
 
 // ---------------- LLM layer ----------------
+// Provider: Claude if ANTHROPIC_API_KEY is set, else Gemini if GEMINI_API_KEY is set, else template texts.
 const AGENT_MODEL = "claude-sonnet-5-5";
 const MODERATOR_MODEL = "claude-opus-5-5";
-const client = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
-export const llmEnabled = () => client !== null;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
+const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
+const gemini = process.env.GEMINI_API_KEY || null;
+export const llmProvider = () => (anthropic ? "Claude (Anthropic)" : gemini ? `Gemini (${GEMINI_MODEL})` : null);
+export const llmEnabled = () => llmProvider() !== null;
+type Log = (l: ApiLog) => void;
 
 const fmt = (p: DataPoint) =>
-  `- [${p.key}] ${p.label}: ${p.value === null ? "NICHT VERFÜGBAR" : `${p.value}${p.unit ? " " + p.unit : ""}`} (Quelle: ${p.source})`;
+  `- [${p.key}] ${p.label}: ${p.value === null ? "NICHT VERFÜGBAR" : `${p.value}${p.unit ? " " + p.unit : ""}`}` +
+  `${p.ref != null ? ` (ref Stadtschnitt: ${p.ref})` : ""}${p.trend != null ? ` (trend seit 2019/21: ${p.trend > 0 ? "+" : ""}${p.trend})` : ""}` +
+  ` (Quelle: ${p.source})`;
 
 const RULES =
   "Antworte auf Deutsch in Schweizer Schreibweise (ss statt ß). Erfinde keine Fakten: Nutze nur die gelieferten Datenpunkte. " +
   "Fehlt ein Datenpunkt, sag das offen. Gib KEINE Preisschätzung in CHF ab. Antworte ausschliesslich mit JSON, ohne Markdown.";
 
-async function askJson<T>(model: string, system: string, user: string): Promise<T> {
-  const res = await client!.messages.create({
-    model,
-    max_tokens: 1500,
-    system: [{ type: "text", text: `${system}\n\n${RULES}`, cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: user }],
+async function askGemini(system: string, user: string): Promise<string> {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": gemini! },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: "user", parts: [{ text: user }] }],
+      generationConfig: { responseMimeType: "application/json", maxOutputTokens: 4096 },
+    }),
+    signal: AbortSignal.timeout(60000),
   });
-  const text = res.content.map((c) => (c.type === "text" ? c.text : "")).join("");
-  return JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as T;
+  if (!res.ok) throw new Error(`gemini ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  return (data.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string }) => p.text ?? "").join("");
 }
 
-function templateText(def: Def, points: DataPoint[], score: number | null) {
+async function askJson<T>(model: string, system: string, user: string, log?: Log, tag = "agent"): Promise<T> {
+  const t0 = Date.now();
+  const source = anthropic ? `Claude · ${model} · ${tag}` : `Gemini · ${GEMINI_MODEL} · ${tag}`;
+  try {
+    let text: string;
+    if (anthropic) {
+      const res = await anthropic.messages.create({
+        model,
+        max_tokens: 1500,
+        system: [{ type: "text", text: `${system}\n\n${RULES}`, cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: user }],
+      });
+      text = res.content.map((c) => (c.type === "text" ? c.text : "")).join("");
+    } else {
+      text = await askGemini(`${system}\n\n${RULES}`, user);
+    }
+    const out = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as T;
+    log?.({ source, ok: true, ms: Date.now() - t0 });
+    return out;
+  } catch (err) {
+    log?.({ source, ok: false, ms: Date.now() - t0, error: String((err as Error).message).slice(0, 300) });
+    throw err;
+  }
+}
+
+function templateText(points: DataPoint[], score: number | null) {
   const have = points.filter((p) => p.value !== null);
   const missing = points.filter((p) => p.value === null);
   return {
@@ -177,13 +222,13 @@ function templateText(def: Def, points: DataPoint[], score: number | null) {
   };
 }
 
-export async function runAgent(def: Def, all: DataPoint[], building: Building | null): Promise<AgentResult> {
+export async function runAgent(def: Def, all: DataPoint[], building: Building | null, log?: Log): Promise<AgentResult> {
   const points = all.filter((p) => def.categories.includes(p.category));
   const values = Object.fromEntries(all.map((p) => [p.key, p.value]));
   const score = def.score(values);
   const usedKeys = points.map((p) => p.key);
-  let text = templateText(def, points, score);
-  if (client && score != null) {
+  let text = templateText(points, score);
+  if (llmEnabled() && score != null) {
     try {
       text = await askJson<{ summary: string; details: string[] }>(
         AGENT_MODEL,
@@ -192,15 +237,16 @@ export async function runAgent(def: Def, all: DataPoint[], building: Building | 
           `Datenpunkte:\n${points.map(fmt).join("\n")}\n` +
           (building && def.id === "investor" ? `Gebäude: ${JSON.stringify(building)}\n` : "") +
           `\nJSON-Format: {"summary": "1–2 Sätze Kernaussage", "details": ["3–5 kurze Punkte, jeweils mit Bezug auf einen Datenpunkt in eckigen Klammern, z.B. [no2]"]}`,
+        log, def.id,
       );
-    } catch (err) {
-      console.warn(`agent ${def.id} llm failed`, err);
+    } catch {
+      // logged in askJson; keep template text
     }
   }
   return { id: def.id, name: def.name, score, ...text, usedKeys };
 }
 
-export async function moderate(results: AgentResult[], profile: Profile, address: string): Promise<Verdict> {
+export async function moderate(results: AgentResult[], profile: Profile, address: string, log?: Log): Promise<Verdict> {
   const score = overallScore(results, profile);
   const scored = results.filter((r) => r.score != null);
   const fallback: Verdict = {
@@ -210,7 +256,7 @@ export async function moderate(results: AgentResult[], profile: Profile, address
     risiken: scored.filter((r) => r.score! < 45).map((r) => `${r.name}: ${r.score}/100`),
     widersprueche: [],
   };
-  if (!client) return fallback;
+  if (!llmEnabled()) return fallback;
   try {
     const out = await askJson<Omit<Verdict, "score">>(
       MODERATOR_MODEL,
@@ -220,10 +266,10 @@ export async function moderate(results: AgentResult[], profile: Profile, address
       `Adresse: ${address}\nNutzerprofil: ${PROFILE_LABEL[profile]}\nGesamtscore (regelbasiert, gewichtet): ${score}\n\n` +
         results.map((r) => `## ${r.name} – Score ${r.score ?? "n/a"}\n${r.summary}\n${r.details.join("\n")}`).join("\n\n") +
         `\n\nJSON-Format: {"summary": "3–4 Sätze Fazit", "chancen": ["..."], "risiken": ["..."], "widersprueche": ["..."]}`,
+      log, "moderator",
     );
     return { score, ...out };
-  } catch (err) {
-    console.warn("moderator llm failed", err);
+  } catch {
     return fallback;
   }
 }

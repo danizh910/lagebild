@@ -13,7 +13,7 @@ const PROFILES = [
   { id: "investor", label: "Investor" },
 ] as const;
 
-const AGENT_NAMES = ["Umwelt & Lärm", "Mobilität", "Familie & Alltag", "Nachtleben & Störfaktoren", "Investor & Entwicklung", "Risiko", "Wohnqualität"];
+const AGENT_NAMES = ["Umwelt & Lärm", "Mobilität", "Familie & Alltag", "Nachtleben & Störfaktoren", "Investor & Entwicklung", "Risiko", "Wohnqualität", "Quartier & Stimmung"];
 
 export default function Home() {
   const router = useRouter();
@@ -70,7 +70,7 @@ export default function Home() {
       <p className="mb-3 text-xs font-medium uppercase tracking-[0.2em] text-brand">Standort-Briefing</p>
       <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">Ist dieser Standort gut – und für wen?</h1>
       <p className="mt-4 max-w-2xl text-lg text-muted-foreground">
-        Sieben KI-Agenten prüfen jede Schweizer Adresse aus ihrer Sicht: Lärm, Luft, ÖV, Familie, Nachtleben, Risiken und
+        Acht KI-Agenten prüfen jede Schweizer Adresse aus ihrer Sicht: Lärm, Luft, ÖV, Familie, Nachtleben, Risiken, Stimmung im Quartier und
         Entwicklung. Jede Aussage mit Quelle und Datum.
       </p>
 

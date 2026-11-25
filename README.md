@@ -1,6 +1,6 @@
 # Lagebild – Standort-Briefing für Immobilien
 
-Gib eine Schweizer Adresse ein: Sieben Agenten (Umwelt & Lärm, Mobilität, Familie & Alltag, Nachtleben, Investor & Entwicklung, Risiko, Wohnqualität) bewerten den Standort, ein Moderator fasst zusammen. Jeder Datenpunkt trägt Quelle und Abrufdatum. Bewusst **keine** Preisbewertung in CHF.
+Gib eine Schweizer Adresse ein: Acht Agenten (Umwelt & Lärm, Mobilität, Familie & Alltag, Nachtleben, Investor & Entwicklung, Risiko, Wohnqualität, Quartier & Stimmung) bewerten den Standort, ein Moderator fasst zusammen. Jeder Datenpunkt trägt Quelle und Abrufdatum. Bewusst **keine** Preisbewertung in CHF.
 
 - Scores sind regelbasiert (reproduzierbar, `src/lib/agents.ts`). Claude schreibt nur die Begründungen, wenn `ANTHROPIC_API_KEY` gesetzt ist.
 - Daten: `src/lib/sources.ts`. Speicherung: Neon (`DATABASE_URL`), eine Tabelle `analyses`, wird automatisch angelegt.

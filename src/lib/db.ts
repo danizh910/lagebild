@@ -1,7 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import type { AgentResult, Profile, Verdict } from "./agents";
 import type { Place } from "./geo";
-import type { Building, DataPoint, Poi } from "./sources";
+import type { ApiLog, Building, DataPoint, Poi } from "./sources";
 
 export type Analysis = {
   id: string;
@@ -22,7 +22,8 @@ const sql = neon(process.env.DATABASE_URL!);
 // once we need cross-analysis queries (benchmarks, bank API).
 let ready: Promise<unknown> | null = null;
 const ensure = () =>
-  (ready ??= sql`
+  (ready ??= Promise.all([
+    sql`
     create table if not exists analyses (
       id text primary key,
       place jsonb not null,
@@ -34,7 +35,52 @@ const ensure = () =>
       agents jsonb not null default '[]',
       verdict jsonb,
       created_at timestamptz not null default now()
-    )`);
+    )`,
+    sql`
+    create table if not exists api_logs (
+      id bigserial primary key,
+      analysis_id text,
+      source text not null,
+      ok boolean not null,
+      ms integer not null,
+      error text,
+      created_at timestamptz not null default now()
+    )`,
+  ]));
+
+export async function saveLogs(analysisId: string, logs: ApiLog[]) {
+  if (!logs.length) return;
+  await ensure();
+  await sql`
+    insert into api_logs (analysis_id, source, ok, ms, error)
+    select ${analysisId}, x->>'source', (x->>'ok')::boolean, (x->>'ms')::int, x->>'error'
+    from jsonb_array_elements(${JSON.stringify(logs)}::jsonb) x`;
+}
+
+/** Per-source health over the last `days` days, for the admin page. */
+export async function sourceStats(days = 7) {
+  await ensure();
+  return (await sql`
+    select source, count(*)::int as calls, count(*) filter (where ok)::int as ok_calls,
+      round(avg(ms))::int as avg_ms, max(created_at) as last_call,
+      (array_agg(error order by created_at desc) filter (where not ok))[1] as last_error
+    from api_logs where created_at > now() - make_interval(days => ${days})
+    group by source order by (count(*) filter (where not ok))::float / count(*) desc, source`) as Array<{
+    source: string; calls: number; ok_calls: number; avg_ms: number; last_call: string; last_error: string | null;
+  }>;
+}
+
+export async function recentLogs(limit = 100) {
+  await ensure();
+  return (await sql`select * from api_logs order by id desc limit ${limit}`) as Array<ApiLog & { id: number; analysis_id: string; created_at: string }>;
+}
+
+export async function recentAnalyses(limit = 30) {
+  await ensure();
+  return (await sql`
+    select id, place->>'label' as label, profile, verdict->>'score' as score, created_at
+    from analyses order by created_at desc limit ${limit}`) as Array<{ id: string; label: string; profile: string; score: string; created_at: string }>;
+}
 
 export async function saveAnalysis(a: Omit<Analysis, "created_at">) {
   await ensure();
