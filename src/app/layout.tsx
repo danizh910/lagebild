@@ -1,41 +1,31 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import Link from "next/link";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import { HeaderAccount, MaybeClerk } from "@/components/account";
+import { SiteHeader } from "@/components/site-header";
 import "./globals.css";
 
-const geistSans = Geist({ variable: "--font-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+const jakarta = Plus_Jakarta_Sans({ variable: "--font-sans", subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
 
 export const metadata: Metadata = {
   title: "Lagebild – Standort-Briefing für Immobilien",
   description: "Mehrere KI-Agenten bewerten jede Schweizer Adresse: Lage, Lärm, Verkehr, Risiken und Bauaktivität. Nachvollziehbar, mit Quellen.",
 };
 
-// Follow the OS colour scheme without a flash (no theme toggle needed in the MVP).
-const themeScript = `try{if(matchMedia('(prefers-color-scheme: dark)').matches)document.documentElement.classList.add('dark')}catch(e){}`;
-
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="de-CH" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`} suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-      </head>
-      <body className="min-h-full flex flex-col bg-background text-foreground">
+    <html lang="de-CH" className={`${jakarta.variable} h-full antialiased`}>
+      <body className="flex min-h-full flex-col bg-bg text-ink">
         <MaybeClerk>
-          <header className="print:hidden border-b">
-            <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
-              <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
-                <span className="grid size-6 place-items-center rounded-sm bg-brand text-[13px] font-bold text-white">+</span>
-                Lagebild
-              </Link>
-              <span className="hidden text-xs text-muted-foreground sm:inline">Standort-Briefing · Schweiz</span>
+          {/* Hidden via CSS on report pages, which bring their own header with the profile switcher. */}
+          <div className="site-header-global mx-auto w-full max-w-[1360px] px-4 pt-4 sm:px-6 sm:pt-6 print:hidden">
+            <SiteHeader>
               <HeaderAccount />
-            </div>
-          </header>
+            </SiteHeader>
+          </div>
           <main className="flex-1">{children}</main>
-          <footer className="print:hidden border-t py-6 text-center text-xs text-muted-foreground">
+          <footer className="mx-auto w-full max-w-[1360px] px-4 pb-8 pt-12 text-center text-xs leading-relaxed text-ink-3 sm:px-6 print:hidden">
             Daten: geo.admin.ch (swisstopo, BAFU, ARE, BFS, BAG, BFE, BAK, BAV, BAZL) · Kanton und Stadt Zürich (OGD) · © OpenStreetMap-Mitwirkende.
+            <br />
             Kein Gutachten und keine Preisbewertung.
           </footer>
         </MaybeClerk>

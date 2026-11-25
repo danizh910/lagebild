@@ -10,14 +10,14 @@ export function MaybeClerk({ children }: { children: React.ReactNode }) {
 export function HeaderAccount() {
   if (!authEnabled()) return null;
   return (
-    <div className="ml-auto flex items-center gap-3 text-sm">
+    <div className="flex items-center gap-3 text-[15px] font-medium">
       <Show when="signed-in">
-        <Link href="/meine" className="hover:underline">Meine Analysen</Link>
+        <Link href="/meine" className="flex min-h-11 items-center rounded-full px-3 text-ink-2 hover:text-ink">Meine Analysen</Link>
         <UserButton />
       </Show>
       <Show when="signed-out">
         <SignInButton mode="modal">
-          <button className="rounded-md border px-3 py-1.5 hover:bg-accent">Anmelden</button>
+          <button className="min-h-11 rounded-full bg-ink px-5 font-semibold text-white">Anmelden</button>
         </SignInButton>
       </Show>
     </div>

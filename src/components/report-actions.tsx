@@ -12,17 +12,17 @@ export async function ReportActions({ id, ownerId }: { id: string; ownerId: stri
     return (
       <div className="flex gap-2 print:hidden">
         <PrintButton copyOnly />
-        <SignInButton mode="modal"><Button>Anmelden für PDF & Speichern</Button></SignInButton>
+        <SignInButton mode="modal"><Button>Anmelden für PDF</Button></SignInButton>
       </div>
     );
   }
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
       {ownerId === userId ? (
-        <span className="text-xs text-muted-foreground">✓ In „Meine Analysen“</span>
+        <span className="px-2 text-xs font-semibold text-good-ink">In «Meine Analysen»</span>
       ) : !ownerId ? (
         <form action={claim.bind(null, id)}>
-          <Button type="submit" variant="outline">Zu meinen Analysen</Button>
+          <Button type="submit" variant="outline" className="border-0">Speichern</Button>
         </form>
       ) : null}
       <PrintButton />
