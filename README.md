@@ -1,36 +1,29 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Lagebild – Standort-Briefing für Immobilien
 
-## Getting Started
+Gib eine Schweizer Adresse ein: Sieben Agenten (Umwelt & Lärm, Mobilität, Familie & Alltag, Nachtleben, Investor & Entwicklung, Risiko, Wohnqualität) bewerten den Standort, ein Moderator fasst zusammen. Jeder Datenpunkt trägt Quelle und Abrufdatum. Bewusst **keine** Preisbewertung in CHF.
 
-First, run the development server:
+- Scores sind regelbasiert (reproduzierbar, `src/lib/agents.ts`). Claude schreibt nur die Begründungen, wenn `ANTHROPIC_API_KEY` gesetzt ist.
+- Daten: `src/lib/sources.ts`. Speicherung: Neon (`DATABASE_URL`), eine Tabelle `analyses`, wird automatisch angelegt.
+- PDF: Browser-Druck mit Druck-Styles.
 
-```bash
+## Lokal
+```
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npx tsx scripts/collect-check.mts "Langstrasse 4 Zürich"   # Live-Check der Datenquellen
+npx tsx src/lib/agents.ts                                    # Check der Score-Regeln
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Umgebungsvariablen
+| Variable | Pflicht | Wofür |
+|---|---|---|
+| `DATABASE_URL` | ja | Neon Postgres |
+| `ANTHROPIC_API_KEY` | nein | KI-Begründungen der Agenten und des Moderators |
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Datenquellen und Lizenzen
+- geo.admin.ch / swisstopo, BAFU (Lärm, Luft, Aquaprotect, Oberflächenabfluss), ARE (ÖV-Güteklassen, Bauzonen), BFS (Gebäude- und Wohnungsregister), BAG (Radon), BFE (sonnendach.ch), BAK (ISOS), BAV (Haltestellen), BAZL (Fluglärm): Open Government Data, Quellenangabe Pflicht.
+- OpenStreetMap über Overpass API: © OpenStreetMap-Mitwirkende, ODbL.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Stand (Etappe 1)
+Fertig: Adresse → Datensammlung → 7 Agenten → Moderator → teilbarer Report mit Karte, Gebäudedaten, Quellen-Tabelle, PDF-Druck, 3-Wochen-Cache.
+Offen: Baugesuche Kanton ZH + Kreis-Vergleich (Etappe 3), Clerk-Login und „Meine Analysen“ (Etappe 4), Luftbild-Vergleich und Stau-Faktor (Etappe 5), Limit für anonyme Analysen sobald KI aktiv ist.
