@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { PROFILE_LABEL, llmEnabled } from "@/lib/agents";
 import { getAnalysis } from "@/lib/db";
 import { SiteMap } from "@/components/site-map";
-import { PrintButton } from "@/components/print-button";
+import { ReportActions } from "@/components/report-actions";
 import type { DataPoint, Poi } from "@/lib/sources";
 
 function tone(score: number | null) {
@@ -169,7 +169,7 @@ async function Report({ params }: { params: Promise<{ id: string }> }) {
             Erstellt am {date} · Sicht: {PROFILE_LABEL[a.profile]} · Report-ID {a.id}
           </p>
         </div>
-        <PrintButton />
+        <ReportActions id={a.id} ownerId={a.user_id} />
       </div>
 
       {/* Fazit */}

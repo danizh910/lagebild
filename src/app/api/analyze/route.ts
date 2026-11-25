@@ -1,5 +1,10 @@
-import { AGENTS, moderate, runAgent, type Profile } from "@/lib/agents";
-import { findRecent, saveAnalysis, saveLogs } from "@/lib/db";
+import { createHash } from "node:crypto";
+import { AGENTS, llmEnabled, moderate, runAgent, type Profile } from "@/lib/agents";
+import { currentUserId } from "@/lib/auth";
+import { countToday, findRecent, saveAnalysis, saveLogs, setOwner } from "@/lib/db";
+
+const LIMIT_ANON = 3;
+const LIMIT_USER = 30;
 import type { Place } from "@/lib/geo";
 import { collect, DATA_VERSION, type ApiLog } from "@/lib/sources";
 
@@ -17,6 +22,19 @@ export async function POST(req: Request) {
     return Response.json({ error: "Ungültige Adresse" }, { status: 400 });
   }
   const label = String(place.label ?? "").slice(0, 200);
+
+  // Daily limits protect the (paid) KI calls. ponytail: IP hash per day; move to a real rate limiter if abused.
+  const userId = await currentUserId();
+  const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "local";
+  const ipHash = createHash("sha256").update(`${ip}|${new Date().toISOString().slice(0, 10)}`).digest("hex").slice(0, 32);
+  const limit = userId ? LIMIT_USER : LIMIT_ANON;
+  if (llmEnabled() && (await countToday(userId ? { userId } : { ipHash })) >= limit) {
+    return Response.json({
+      error: userId
+        ? `Tageslimit von ${limit} Analysen erreicht. Morgen geht es weiter.`
+        : `Ohne Konto sind ${limit} Analysen pro Tag möglich. Melde dich an für mehr.`,
+    }, { status: 429 });
+  }
 
   const enc = new TextEncoder();
   const stream = new ReadableStream({
@@ -50,6 +68,7 @@ export async function POST(req: Request) {
           id, place: { ...place, label }, profile, status: "done",
           points: data.points, pois: data.pois, building: data.building, agents, verdict,
         });
+        await setOwner(id, userId, ipHash);
         await saveLogs(id, logs).catch((err) => console.error("saving logs failed", err));
         send({ done: id });
       } catch (err) {

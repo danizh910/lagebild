@@ -41,6 +41,7 @@ export default function Home() {
     setAgentsDone([]);
     try {
       const res = await fetch("/api/analyze", { method: "POST", body: JSON.stringify({ place, profile }) });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Analyse fehlgeschlagen");
       if (!res.body) throw new Error();
       const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
       let buf = "";

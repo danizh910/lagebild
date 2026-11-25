@@ -21,6 +21,7 @@ npx tsx src/lib/agents.ts                                    # Check der Score-R
 | `GEMINI_API_KEY` | nein | KI-Begründungen über Google Gemini |
 | `GEMINI_MODEL` | nein | Gemini-Modell, Standard `gemini-flash-latest` |
 | `ANTHROPIC_API_KEY` | nein | KI-Begründungen über Claude (hat Vorrang vor Gemini) |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | nein | Login (Clerk). Ohne läuft die App anonym; mit: Meine Analysen, Vergleich, PDF nur mit Konto, Tageslimit 3 anonym / 30 angemeldet (nur wenn KI aktiv) |
 | `CRON_SECRET` | ja (Prod) | Schützt den täglichen Baugesuch-Import `/api/cron/baugesuche` (Vercel Cron, 05:00 UTC) |
 | `ADMIN_PASSWORD` | nein | Passwort für `/admin` (API-Logs, letzte Analysen); ohne ist `/admin` gesperrt |
 
@@ -33,4 +34,5 @@ npx tsx src/lib/agents.ts                                    # Check der Score-R
 ## Stand (Etappe 1)
 Fertig: Adresse → Datensammlung → 7 Agenten → Moderator → teilbarer Report mit Karte, Gebäudedaten, Quellen-Tabelle, PDF-Druck, 3-Wochen-Cache.
 Fertig (Etappe 3): Baugesuche Kanton ZH, Quartier-Zufriedenheit Stadt Zürich.
-Offen: Kreis-Durchschnitt für Lärm/Luft, Clerk-Login und „Meine Analysen“ (Etappe 4), Luftbild-Vergleich und Stau-Faktor (Etappe 5), Limit für anonyme Analysen sobald KI aktiv ist.
+Fertig (Etappe 4): Clerk-Login (optional), Meine Analysen, Vergleich bis 4 Standorte, Tageslimits.
+Offen: Kreis-Durchschnitt für Lärm/Luft, Luftbild-Vergleich und Stau-Faktor (Etappe 5).

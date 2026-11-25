@@ -14,6 +14,7 @@ export type Analysis = {
   agents: AgentResult[];
   verdict: Verdict | null;
   created_at: string;
+  user_id?: string | null;
 };
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -46,7 +47,43 @@ const ensure = () =>
       error text,
       created_at timestamptz not null default now()
     )`,
-  ]));
+  ]).then(() => sql`
+    alter table analyses add column if not exists user_id text;
+  `).then(() => sql`alter table analyses add column if not exists ip_hash text`)
+    .then(() => sql`create index if not exists analyses_user on analyses (user_id, created_at desc)`));
+
+export async function setOwner(id: string, userId: string | null, ipHash: string | null) {
+  await ensure();
+  await sql`update analyses set user_id = ${userId}, ip_hash = ${ipHash} where id = ${id}`;
+}
+
+/** Attach an anonymous analysis to a user ("Zu meinen Analysen hinzufügen"). Never steals someone else's. */
+export async function claimAnalysis(id: string, userId: string) {
+  await ensure();
+  await sql`update analyses set user_id = ${userId} where id = ${id} and user_id is null`;
+}
+
+export async function countToday(by: { userId?: string; ipHash?: string }) {
+  await ensure();
+  const rows = by.userId
+    ? await sql`select count(*)::int as c from analyses where user_id = ${by.userId} and created_at > now() - interval '1 day'`
+    : await sql`select count(*)::int as c from analyses where user_id is null and ip_hash = ${by.ipHash ?? ""} and created_at > now() - interval '1 day'`;
+  return (rows[0] as { c: number }).c;
+}
+
+export async function userAnalyses(userId: string) {
+  await ensure();
+  return (await sql`
+    select id, place->>'label' as label, profile, (verdict->>'score')::int as score, created_at
+    from analyses where user_id = ${userId} order by created_at desc limit 200`) as Array<{
+    id: string; label: string; profile: string; score: number | null; created_at: string;
+  }>;
+}
+
+export async function getAnalysesOf(ids: string[], userId: string) {
+  await ensure();
+  return (await sql`select * from analyses where id = any(${ids}) and user_id = ${userId}`) as Analysis[];
+}
 
 export async function saveLogs(analysisId: string, logs: ApiLog[]) {
   if (!logs.length) return;
