@@ -1,8 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ApiLog, Building, DataPoint } from "./sources";
 
-export type AgentId = "investor" | "familie" | "mobilitaet" | "umwelt" | "nachtleben" | "risiko" | "wohnqualitaet" | "quartier";
-export type Profile = "ausgewogen" | "familie" | "jung" | "investor";
+import { AGENT_NAME, avg, clamp, overallScore, PROFILE_LABEL, type AgentId, type Profile } from "./scoring";
+
+export { AGENT_META, AGENT_NAME, overallScore, PROFILE_LABEL, PROFILE_WEIGHTS, PROFILES } from "./scoring";
+export type { AgentId, Profile } from "./scoring";
 
 export type AgentResult = {
   id: AgentId;
@@ -33,19 +35,13 @@ type Def = {
 
 type Values = Record<string, DataPoint["value"]>;
 const n = (v: DataPoint["value"]) => (typeof v === "number" ? v : null);
-const clamp = (x: number) => Math.max(0, Math.min(100, Math.round(x)));
 /** Linear map: `good` -> 100, `bad` -> 0. */
 const lin = (x: number | null, good: number, bad: number) => (x == null ? null : clamp(((x - bad) / (good - bad)) * 100));
-const avg = (xs: Array<number | null>, w?: number[]) => {
-  let s = 0, t = 0;
-  xs.forEach((x, i) => { if (x != null) { s += x * (w?.[i] ?? 1); t += w?.[i] ?? 1; } });
-  return t ? clamp(s / t) : null;
-};
 const OEV: Record<string, number> = { A: 100, B: 80, C: 60, D: 40 };
 
 export const AGENTS: Def[] = [
   {
-    id: "umwelt", name: "Umwelt & Lärm", role: "Du bewertest Lärm- und Luftbelastung aus Sicht der Gesundheit und Wohnruhe.",
+    id: "umwelt", name: AGENT_NAME.umwelt, role: "Du bewertest Lärm- und Luftbelastung aus Sicht der Gesundheit und Wohnruhe.",
     categories: ["umwelt"],
     score: (v) => avg([
       lin(n(v.strassenlaerm_tag), 45, 70), lin(n(v.strassenlaerm_nacht), 35, 60), lin(n(v.bahnlaerm_tag), 45, 70),
@@ -53,7 +49,7 @@ export const AGENTS: Def[] = [
     ], [3, 2, 1, 2, 2, 1]),
   },
   {
-    id: "mobilitaet", name: "Mobilität", role: "Du bewertest, wie gut der Standort ohne Auto erschlossen ist.",
+    id: "mobilitaet", name: AGENT_NAME.mobilitaet, role: "Du bewertest, wie gut der Standort ohne Auto erschlossen ist.",
     categories: ["mobilitaet"],
     score: (v) => avg([
       typeof v.oev_klasse === "string" ? OEV[v.oev_klasse[0]] ?? 15 : null,
@@ -62,7 +58,7 @@ export const AGENTS: Def[] = [
     ], [3, 1, 2]),
   },
   {
-    id: "familie", name: "Familie & Alltag", role: "Du bewertest den Standort aus Sicht einer Familie mit Kindern: Schulen, Kitas, Ärzte, Einkauf, sicheres Umfeld.",
+    id: "familie", name: AGENT_NAME.familie, role: "Du bewertest den Standort aus Sicht einer Familie mit Kindern: Schulen, Kitas, Ärzte, Einkauf, sicheres Umfeld.",
     categories: ["familie", "umwelt"],
     // Without the OSM amenities the noise term alone would dominate and mislead -> no score.
     score: (v) => v.kiga_600m == null ? null : avg([
@@ -74,13 +70,13 @@ export const AGENTS: Def[] = [
     ], [2, 2, 1, 1, 1]),
   },
   {
-    id: "nachtleben", name: "Nachtleben & Störfaktoren",
+    id: "nachtleben", name: AGENT_NAME.nachtleben,
     role: "Du bewertest Nachtleben und mögliche Störungen. Score = Ruhe (100 = keine Störung). Erkläre ausdrücklich, dass viel Nachtleben für junge Leute ein Plus und für Familien ein Minus ist.",
     categories: ["nachtleben"],
     score: (v) => n(v.bars_300m) == null ? null : clamp(100 - n(v.bars_300m)! * 8 - (n(v.clubs_300m) ?? 0) * 25 - (n(v.clubs_600m) ?? 0) * 5),
   },
   {
-    id: "investor", name: "Investor & Entwicklung",
+    id: "investor", name: AGENT_NAME.investor,
     role: "Du bewertest das Entwicklungs- und Wertsteigerungspotenzial: Bauzone, Nachfragetreiber wie ÖV, Gebäudezustand (alte Heizung/altes Baujahr = Sanierungsbedarf, aber auch Potenzial) und Bauaktivität im Umkreis (viele Neubau-/Aufstockungsgesuche = Quartier entwickelt sich, oft Frühindikator für steigende Preise; ein Baugesuch heisst aber nicht, dass gebaut wird).",
     categories: ["entwicklung", "gebaeude", "mobilitaet"],
     score: (v) => {
@@ -100,7 +96,7 @@ export const AGENTS: Def[] = [
     },
   },
   {
-    id: "risiko", name: "Risiko", role: "Du bist der Skeptiker. Du suchst Risiken: Naturgefahren, Radon, Schutzinventare (Einschränkungen bei Umbauten). Benenne auch, welche Risiken mangels Daten nicht geprüft werden konnten (z.B. kantonale Altlasten).",
+    id: "risiko", name: AGENT_NAME.risiko, role: "Du bist der Skeptiker. Du suchst Risiken: Naturgefahren, Radon, Schutzinventare (Einschränkungen bei Umbauten). Benenne auch, welche Risiken mangels Daten nicht geprüft werden konnten (z.B. kantonale Altlasten).",
     categories: ["risiko"],
     score: (v) => {
       const known = [v.radon, v.hochwasser, v.oberflaechenabfluss, v.isos].some((x) => x != null);
@@ -115,7 +111,7 @@ export const AGENTS: Def[] = [
     },
   },
   {
-    id: "wohnqualitaet", name: "Wohnqualität", role: "Du bewertest Besonnung/Solarpotenzial und Grün- und Freizeitflächen in der Nähe.",
+    id: "wohnqualitaet", name: AGENT_NAME.wohnqualitaet, role: "Du bewertest Besonnung/Solarpotenzial und Grün- und Freizeitflächen in der Nähe.",
     categories: ["wohnqualitaet"],
     score: (v) => avg([
       n(v.solar_klasse) == null ? null : clamp(n(v.solar_klasse)! * 20),
@@ -123,7 +119,7 @@ export const AGENTS: Def[] = [
     ]),
   },
   {
-    id: "quartier", name: "Quartier & Stimmung",
+    id: "quartier", name: AGENT_NAME.quartier,
     role: "Du wertest aus, wie zufrieden die Bewohnerinnen und Bewohner des Quartiers selbst sind (Bevölkerungsbefragung der Stadt Zürich, Noten 1–6). Vergleiche mit dem Stadtschnitt (ref) und nenne den Trend gegenüber 2019/21 (trend). Nur für die Stadt Zürich verfügbar.",
     categories: ["quartier"],
     // grade 1..6 -> 0..100; the night-safety share is already a percentage
@@ -131,25 +127,6 @@ export const AGENTS: Def[] = [
       typeof x !== "number" ? null : k === "bvb_A4001aa01" ? x : ((x - 1) / 5) * 100)),
   },
 ];
-
-export const PROFILE_WEIGHTS: Record<Profile, Record<AgentId, number>> = {
-  ausgewogen: { investor: 1, familie: 1, mobilitaet: 1, umwelt: 1, nachtleben: 1, risiko: 1, wohnqualitaet: 1, quartier: 1 },
-  familie: { investor: 0.5, familie: 3, mobilitaet: 1, umwelt: 2, nachtleben: 2, risiko: 1.5, wohnqualitaet: 1.5, quartier: 1.5 },
-  jung: { investor: 0.5, familie: 0.3, mobilitaet: 2.5, umwelt: 0.8, nachtleben: 0.2, risiko: 1, wohnqualitaet: 1, quartier: 1 },
-  investor: { investor: 3, familie: 1, mobilitaet: 1.5, umwelt: 1, nachtleben: 0.5, risiko: 2, wohnqualitaet: 0.8, quartier: 1.5 },
-};
-export const PROFILE_LABEL: Record<Profile, string> = {
-  ausgewogen: "Ausgewogen", familie: "Eigennutzer Familie", jung: "Junges Wohnen", investor: "Investor",
-};
-
-export function overallScore(results: AgentResult[], profile: Profile) {
-  const w = PROFILE_WEIGHTS[profile];
-  // "jung" sees nightlife as a plus, so invert the quiet score for that profile.
-  return avg(
-    results.map((r) => (r.score == null ? null : profile === "jung" && r.id === "nachtleben" ? 100 - r.score : r.score)),
-    results.map((r) => w[r.id]),
-  ) ?? 50;
-}
 
 // ---------------- LLM layer ----------------
 // Provider: Claude if ANTHROPIC_API_KEY is set, else Gemini if GEMINI_API_KEY is set, else template texts.

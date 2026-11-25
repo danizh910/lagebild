@@ -8,10 +8,10 @@ export function PrintButton({ copyOnly = false }: { copyOnly?: boolean }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="flex gap-2 print:hidden">
-      <Button variant="outline" onClick={() => navigator.clipboard?.writeText(location.href).then(() => setCopied(true))}>
-        {copied ? "Link kopiert ✓" : "Link kopieren"}
+      <Button variant="outline" className="border-0" onClick={() => navigator.clipboard?.writeText(location.href).then(() => setCopied(true))}>
+        {copied ? "Link kopiert" : "Link kopieren"}
       </Button>
-      {!copyOnly && <Button onClick={() => window.print()}>Als PDF speichern</Button>}
+      {!copyOnly && <Button onClick={() => window.print()} aria-label="PDF speichern">PDF</Button>}
     </div>
   );
 }
