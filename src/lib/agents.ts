@@ -171,20 +171,44 @@ const RULES =
   "Antworte auf Deutsch in Schweizer Schreibweise (ss statt ß). Erfinde keine Fakten: Nutze nur die gelieferten Datenpunkte. " +
   "Fehlt ein Datenpunkt, sag das offen. Gib KEINE Preisschätzung in CHF ab. Antworte ausschliesslich mit JSON, ohne Markdown.";
 
+// Free Gemini tiers allow only a few requests per minute: max 2 in flight, retry 429/503, fall back to the lite model.
+// ponytail: in-process semaphore; per-instance only, fine for one serverless instance per analysis.
+const GEMINI_FALLBACK = "gemini-flash-lite-latest";
+let inFlight = 0;
+const waiters: Array<() => void> = [];
+async function withSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (inFlight >= 2) await new Promise<void>((r) => waiters.push(r));
+  inFlight++;
+  try { return await fn(); } finally { inFlight--; waiters.shift()?.(); }
+}
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 async function askGemini(system: string, user: string): Promise<string> {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": gemini! },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: "user", parts: [{ text: user }] }],
-      generationConfig: { responseMimeType: "application/json", maxOutputTokens: 4096 },
-    }),
-    signal: AbortSignal.timeout(60000),
-  });
-  if (!res.ok) throw new Error(`gemini ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const data = await res.json();
-  return (data.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string }) => p.text ?? "").join("");
+  let lastErr = "";
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const model = attempt < 2 ? GEMINI_MODEL : GEMINI_FALLBACK;
+    const res = await withSlot(() => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": gemini! },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: "user", parts: [{ text: user }] }],
+        generationConfig: { responseMimeType: "application/json", maxOutputTokens: 4096 },
+      }),
+      signal: AbortSignal.timeout(60000),
+    }));
+    if (res.ok) {
+      const data = await res.json();
+      return (data.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string }) => p.text ?? "").join("");
+    }
+    const body = await res.text();
+    lastErr = `gemini ${res.status} (${model}): ${body.slice(0, 200)}`;
+    if (res.status !== 429 && res.status !== 503) break;
+    // Google sends e.g. "retryDelay": "17s" on 429; cap the wait so the analysis stays responsive.
+    const hinted = Number(body.match(/"retryDelay":\s*"(\d+)s"/)?.[1] ?? 0) * 1000;
+    await sleep(Math.min(hinted || 1500 * (attempt + 1), 15000));
+  }
+  throw new Error(lastErr);
 }
 
 async function askJson<T>(model: string, system: string, user: string, log?: Log, tag = "agent"): Promise<T> {
