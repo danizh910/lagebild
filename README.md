@@ -18,11 +18,15 @@ npx tsx src/lib/agents.ts                                    # Check der Score-R
 | Variable | Pflicht | Wofür |
 |---|---|---|
 | `DATABASE_URL` | ja | Neon Postgres |
-| `ANTHROPIC_API_KEY` | nein | KI-Begründungen der Agenten und des Moderators |
+| `GEMINI_API_KEY` | nein | KI-Begründungen über Google Gemini |
+| `GEMINI_MODEL` | nein | Gemini-Modell, Standard `gemini-flash-latest` |
+| `ANTHROPIC_API_KEY` | nein | KI-Begründungen über Claude (hat Vorrang vor Gemini) |
+| `ADMIN_PASSWORD` | nein | Passwort für `/admin` (API-Logs, letzte Analysen); ohne ist `/admin` gesperrt |
 
 ## Datenquellen und Lizenzen
 - geo.admin.ch / swisstopo, BAFU (Lärm, Luft, Aquaprotect, Oberflächenabfluss), ARE (ÖV-Güteklassen, Bauzonen), BFS (Gebäude- und Wohnungsregister), BAG (Radon), BFE (sonnendach.ch), BAK (ISOS), BAV (Haltestellen), BAZL (Fluglärm): Open Government Data, Quellenangabe Pflicht.
-- OpenStreetMap über Overpass API: © OpenStreetMap-Mitwirkende, ODbL.
+- OpenStreetMap über Overpass API (zuerst overpass.osm.ch): © OpenStreetMap-Mitwirkende, ODbL.
+- Stadt Zürich: Statistische Quartiere (WFS) und Bevölkerungsbefragung 2019–2025 (OGD). Aggregiert mit `python -I scripts/build-zufriedenheit.py <csv> src/data/zh-zufriedenheit.json`.
 
 ## Stand (Etappe 1)
 Fertig: Adresse → Datensammlung → 7 Agenten → Moderator → teilbarer Report mit Karte, Gebäudedaten, Quellen-Tabelle, PDF-Druck, 3-Wochen-Cache.
