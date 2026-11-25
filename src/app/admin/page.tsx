@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
+import { connection } from "next/server";
 import { llmProvider } from "@/lib/agents";
 import { recentAnalyses, recentLogs, sourceStats } from "@/lib/db";
 
@@ -19,6 +20,7 @@ export default function Page() {
 }
 
 async function Admin() {
+  await connection(); // always render at request time (live data, never prerendered)
   const [stats, logs, analyses] = await Promise.all([sourceStats(7), recentLogs(80), recentAnalyses(20)]);
   return (
     <>
