@@ -12,30 +12,45 @@ const COLORS: Record<string, string> = {
   Baugesuch: BUILD,
 };
 
-const OVERLAYS = {
-  keine: null,
-  "Strassenlärm": "ch.bafu.laerm-strassenlaerm_tag",
-  "Bahnlärm": "ch.bafu.laerm-bahnlaerm_tag",
-  "ÖV-Güteklassen": "ch.are.gueteklassen_oev",
-  "Stickstoffdioxid": "ch.bafu.luftreinhaltung-stickstoffdioxid",
-  "Bauzonen": "ch.are.bauzonen",
-} as const;
-type Overlay = keyof typeof OVERLAYS;
+// `time`: WMTS timestamp. Most layers use "current"; yearly layers (air quality) need a year, else every tile 400s.
+// `maxNative`: highest zoom the server delivers (NO2 is a coarse grid); Leaflet upscales beyond it.
+// ponytail: year and zooms hard-coded; read them from layersConfig if they go stale.
+const OVERLAYS = [
+  { key: "keine", label: "Keine Ebene", hint: "Nur Karte und Punkte", id: null, time: "current", maxNative: 18, legend: null },
+  { key: "strasse", label: "Strassenlärm", hint: "Tagsüber, dB(A)", id: "ch.bafu.laerm-strassenlaerm_tag", time: "current", maxNative: 18, legend: ["leise", "laut", "linear-gradient(90deg,#c7e9b4,#fed976,#fd8d3c,#e31a1c,#800026)"] },
+  { key: "bahn", label: "Bahnlärm", hint: "Tagsüber, dB(A)", id: "ch.bafu.laerm-bahnlaerm_tag", time: "current", maxNative: 18, legend: ["leise", "laut", "linear-gradient(90deg,#c7e9b4,#fed976,#fd8d3c,#e31a1c,#800026)"] },
+  { key: "no2", label: "Stickstoffdioxid", hint: "Jahresmittel 2025, µg/m³", id: "ch.bafu.luftreinhaltung-stickstoffdioxid", time: "2025", maxNative: 13, legend: ["sauber", "belastet", "linear-gradient(90deg,#7fd6ea,#4fc36e,#f1e04a,#f08a3c,#d7301f)"] },
+  { key: "oev", label: "ÖV-Güteklassen", hint: "A = sehr gut erschlossen", id: "ch.are.gueteklassen_oev", time: "current", maxNative: 18, legend: ["A", "D", "linear-gradient(90deg,#7b2d8e,#c051a6,#e9a3c9,#f6d5e8)"] },
+  { key: "zonen", label: "Bauzonen", hint: "Wohn-, Misch-, Arbeitszonen", id: "ch.are.bauzonen", time: "current", maxNative: 18, legend: null },
+] as const;
+type Overlay = (typeof OVERLAYS)[number];
 
 const BASES = {
   Karte: "ch.swisstopo.pixelkarte-grau",
   Satellit: "ch.swisstopo.swissimage",
 } as const;
 type Base = keyof typeof BASES;
-const tileUrl = (id: string, ext = "jpeg") => `https://wmts.geo.admin.ch/1.0.0/${id}/default/current/3857/{z}/{x}/{y}.${ext}`;
+const tileUrl = (id: string, ext = "jpeg", time = "current") => `https://wmts.geo.admin.ch/1.0.0/${id}/default/${time}/3857/{z}/{x}/{y}.${ext}`;
 
 export function SiteMap({ lat, lon, pois, label }: { lat: number; lon: number; pois: Poi[]; label: string }) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<import("leaflet").Map | null>(null);
   const layer = useRef<import("leaflet").Layer | null>(null);
   const baseLayer = useRef<import("leaflet").TileLayer | null>(null);
-  const [overlay, setOverlay] = useState<Overlay>("keine");
+  const [overlay, setOverlay] = useState<Overlay>(OVERLAYS[0]);
   const [base, setBase] = useState<Base>("Karte");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close the layer menu on outside click or Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: PointerEvent) => { if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuOpen(false); };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("pointerdown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [menuOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,8 +101,7 @@ export function SiteMap({ lat, lon, pois, label }: { lat: number; lon: number; p
       const m = map.current;
       if (!m) return;
       if (layer.current) m.removeLayer(layer.current);
-      const id = OVERLAYS[overlay];
-      layer.current = id ? L.tileLayer(tileUrl(id, "png"), { opacity: 0.6, maxZoom: 19 }).addTo(m) : null;
+      layer.current = overlay.id ? L.tileLayer(tileUrl(overlay.id, "png", overlay.time), { opacity: 0.65, maxZoom: 20, maxNativeZoom: overlay.maxNative }).addTo(m) : null;
     });
   }, [overlay]);
 
@@ -109,16 +123,47 @@ export function SiteMap({ lat, lon, pois, label }: { lat: number; lon: number; p
               </button>
             ))}
           </div>
-          <label className="sr-only" htmlFor="map-overlay">Datenebene</label>
-          <select id="map-overlay" value={overlay} onChange={(e) => setOverlay(e.target.value as Overlay)}
-            className="min-h-11 rounded-full border-0 bg-surface px-4 text-xs font-semibold text-ink shadow-sm">
-            {(Object.keys(OVERLAYS) as Overlay[]).map((o) => (
-              <option key={o} value={o}>{o === "keine" ? "Keine Ebene" : o}</option>
-            ))}
-          </select>
+          <div ref={menuRef} className="relative">
+            <button type="button" onClick={() => setMenuOpen((o) => !o)} aria-haspopup="menu" aria-expanded={menuOpen}
+              className={`flex min-h-11 items-center gap-2 rounded-full px-4 text-xs font-semibold shadow-sm transition-colors ${overlay.id ? "bg-ink text-white" : "bg-surface text-ink"}`}>
+              <svg aria-hidden viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
+                <path d="M8 1.8 1.8 5 8 8.2 14.2 5 8 1.8Z" /><path d="m1.8 8 6.2 3.2L14.2 8" /><path d="m1.8 11 6.2 3.2 6.2-3.2" />
+              </svg>
+              {overlay.id ? overlay.label : "Ebenen"}
+              <svg aria-hidden viewBox="0 0 12 12" className={`size-3 transition-transform ${menuOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m3 4.5 3 3 3-3" /></svg>
+            </button>
+            {menuOpen && (
+              <div role="menu" aria-label="Datenebene"
+                className="absolute right-0 top-[calc(100%+8px)] w-64 rounded-2xl bg-surface p-1.5 shadow-[0_12px_32px_rgba(18,21,28,0.16)] ring-1 ring-black/5">
+                {OVERLAYS.map((o) => {
+                  const active = o.key === overlay.key;
+                  return (
+                    <button key={o.key} type="button" role="menuitemradio" aria-checked={active}
+                      onClick={() => { setOverlay(o); setMenuOpen(false); }}
+                      className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors ${active ? "bg-blue-tint" : "hover:bg-[#F3F5F9]"}`}>
+                      <span aria-hidden className="h-5 w-5 shrink-0 rounded-md ring-1 ring-black/10"
+                        style={{ background: o.legend ? o.legend[2] : o.id ? "repeating-linear-gradient(45deg,#e9d5ff 0 4px,#fde68a 4px 8px)" : "#fff" }} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] font-semibold text-ink">{o.label}</span>
+                        <span className="block text-[11px] text-ink-3">{o.hint}</span>
+                      </span>
+                      {active && <svg aria-hidden viewBox="0 0 16 16" className="size-4 text-blue" fill="none" stroke="currentColor" strokeWidth="2"><path d="m3.5 8.5 3 3 6-7" /></svg>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         <ul className="pointer-events-none absolute bottom-3 left-3 z-[1000] flex flex-wrap gap-2 text-xs font-semibold" aria-label="Legende">
+          {overlay.legend && (
+            <li className="flex items-center gap-2 rounded-full bg-surface px-3 py-1.5">
+              <span className="text-ink-3">{overlay.legend[0]}</span>
+              <span className="h-2 w-16 rounded-full" style={{ background: overlay.legend[2] }} />
+              <span className="text-ink-3">{overlay.legend[1]}</span>
+            </li>
+          )}
           {hasBg && <Chip color={BUILD}>Baugesuche</Chip>}
           {hasSchool && <Chip color={SCHOOL}>Schulen &amp; Kitas</Chip>}
           <li className="flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1.5">
